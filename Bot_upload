@@ -1,0 +1,169 @@
+// Constants and Configuration
+var CHANNEL_TOKEN = "XXXXX"; // ดึงมาจาก Line OA
+var GDRIVE_FOLDER_ID = "XXXXX"; // ดึงมาจาก Link Folder งาน ใน Google Drive
+var GDRIVE_FOLDER_IMAGE_ID = "XXXXX"; // ดึงมาจาก Link Folder รูปภาพ ใน Google Drive
+var GDRIVE_MEDIA_FOLDER_ID = "XXXXX"; // ดึงมาจาก Link Folder วิดีโอ ใน Google Drive โดยให้ไฟล์เสียง และ วิดีโอ อยู่ใน Link Folder เดียวดัน
+
+// Mappings for different media types
+var MEDIA_TYPES = {
+  'image': {
+    mimeType: 'image/jpeg',
+    extension: '.jpg',
+    folderId: GDRIVE_FOLDER_IMAGE_ID,
+    emoji: '🖼️ ไฟล์รูปภาพ 🖼️'
+  },
+  'video': {
+    mimeType: 'video/mp4',
+    extension: '.mp4',
+    folderId: GDRIVE_MEDIA_FOLDER_ID,
+    emoji: '🎞️ ไฟล์วิดีโอ 🎞️'
+  },
+  'audio': {
+    mimeType: 'audio/mpeg',
+    extension: '.mp3',
+    folderId: GDRIVE_MEDIA_FOLDER_ID,
+    emoji: '🔊 ไฟล์เสียง 🔊'
+  }
+};
+
+function replyMsg(replyToken, messages) {
+  var url = 'https://api.line.me/v2/bot/message/reply';
+  var options = {
+    'headers': {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'Authorization': 'Bearer ' + CHANNEL_TOKEN,
+    },
+    'method': 'post',
+    'payload': JSON.stringify({
+      'replyToken': replyToken,
+      'messages': messages
+    })
+  };
+  UrlFetchApp.fetch(url, options);
+}
+
+function uploadToDrive(messageId, mimeType, fileName, folderId) {
+  var url = "https://api-data.line.me/v2/bot/message/" + messageId + "/content";
+  var headers = { "headers": { "Authorization": "Bearer " + CHANNEL_TOKEN } };
+
+  try {
+    var content = UrlFetchApp.fetch(url, headers);
+    var blob = content.getBlob();
+    var fileBlob = Utilities.newBlob(blob.getBytes(), mimeType, fileName); // Use the provided fileName
+    var fileId = DriveApp.getFolderById(folderId).createFile(fileBlob).getId();
+    return 'https://drive.google.com/uc?id=' + fileId;
+  } catch (error) {
+    Logger.log("Error uploading messageId " + messageId + ": " + error.toString());
+    return null;
+  }
+}
+
+function handleMediaMessage(event, mediaType) {
+  var messageId = event.message.id;
+  var config = MEDIA_TYPES[mediaType];
+
+  if (!config) {
+    return [{'type': 'text', 'text': 'Unknown media type.'}];
+  }
+
+  // Generate a new filename with a timestamp
+  var timestamp = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyyMMdd_HHmmss");
+  var newFileName = timestamp + config.extension;
+
+  var driveLink = uploadToDrive(messageId, config.mimeType, newFileName, config.folderId); // Pass the new filename
+
+  if (driveLink) {
+    var replyText = config.emoji + '\n.\nชื่อไฟล์: ' + newFileName + '\nลิงก์ Google Drive:\n' + driveLink;
+    return [{'type': 'text', 'text': replyText}];
+  } else {
+    return [{'type': 'text', 'text': '❌ เกิดข้อผิดพลาดในการอัปโหลด ' + config.emoji}];
+  }
+}
+
+function handleFileMessage(event) {
+  var fileName = event.message.fileName;
+  var fileType = fileName.split('.').pop().toLowerCase();
+  var mimeType = getMimeType(fileType);
+
+  if (mimeType !== "undefined") {
+    var messageId = event.message.id;
+
+    // Generate a new filename with a timestamp
+    var timestamp = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyyMMdd_HHmmss");
+    var newFileName = timestamp + "_" + fileName;
+
+    var url = uploadToDrive(messageId, mimeType, newFileName, GDRIVE_FOLDER_ID); // Pass the new filename
+
+    if (url) {
+       return [{'type': 'text', 'text': '📂 ชื่อไฟล์: ' + fileName + '\n.\nชื่อไฟล์ที่บันทึก: ' + newFileName + '\nลิงก์ Google Drive:\n' + url.replace('/uc?id=', '/file/d/') + '/view'}];
+    } else {
+       return [{'type': 'text', 'text': '❌ เกิดข้อผิดพลาดในการอัปโหลดไฟล์' + '\n' + 'กรุณาลองใหม่อีกครั้ง'}];
+    }
+  } else {
+    return [{'type': 'text', 'text': 'ไม่รองรับไฟล์ประเภทนี้'}];
+  }
+}
+
+function getMimeType(fileType) {
+  var mimeTypes = {
+    "pdf": "application/pdf",
+    "zip": "application/zip",
+    "rar": "application/vnd.rar",
+    "7z": "application/x-7z-compressed",
+    "doc": "application/msword",
+    "xls": "application/vnd.ms-excel",
+    "ppt": "application/vnd.ms-powerpoint",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "mp4": "video/mp4",
+    "mpeg": "video/mpeg",
+    "mpg": "video/mpeg",
+    "avi": "video/x-msvideo",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "m4a": "audio/x-wav",
+    "mid": "audio/midi",
+    "midi": "audio/x-midi",
+    "jpeg": "image/jpeg",
+    "bmp": "image/bmp",
+    "png": "image/png",
+    "gif": "image/gif",
+    "jpg": "image/jpeg",
+    "tif": "image/tiff",
+    "tiff": "image/tiff",
+    "ico": "image/vnd.microsoft.icon",
+    "svg": "image/svg+xml",
+    "jfif": "image/pipeg",
+    "txt": "text/plain",
+  };
+  return mimeTypes[fileType] || "undefined";
+}
+
+function doPost(e) {
+  var value = JSON.parse(e.postData.contents);
+  value.events.forEach(function(event) {
+    var type = event.type;
+    var replyToken = event.replyToken;
+    var replyMessage;
+
+    if (type === 'message') {
+      var messageType = event.message.type;
+      switch (messageType) {
+        case 'file':
+          replyMessage = handleFileMessage(event);
+          break;
+        case 'image':
+        case 'video':
+        case 'audio':
+          replyMessage = handleMediaMessage(event, messageType);
+          break;
+        default:
+          break;
+      }
+      if (replyMessage) {
+        replyMsg(replyToken, replyMessage);
+      }
+    }
+  });
+}
